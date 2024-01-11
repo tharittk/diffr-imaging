@@ -1,1 +1,1 @@
-# dev-pttep
+# Personal research on seismic imaging
