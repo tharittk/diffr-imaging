@@ -12,8 +12,80 @@ def plot3(title):
     title="%s"
     label1=Time unit1=s label2=In-line unit2=m label3=Cross-line unit3=m
     ''' % title
+def zplot3d(par,custom1="",custom2=""):
+    return '''
+    byte bar=bar.rsf gainpanel=all pclip=99 %s |
+    grey3 scalebar=y bar=bar.rsf labelrot=n flat=y
+    frame1=%d  frame2=%d frame3=%d
+    point1=0.85 point2=0.90 screenratio=0.7 screenht=9
+    label1=y label2=x label3=z %s
+    ''' % (custom1,par['ypad'],par['xpad'],
+           z_slice/res_grid_par['dz'],custom2)
 
-frq_list = [20, 40]                             # frequency list
+
+# ------------------------------------------------------------
+grid_par = {'nx':360, 'dx':15, 'ox':0,      # common x & y grid parameters
+            'ny':200, 'dy':15, 'oy':0,
+            'xy_pad':40}
+
+res_grid_par = grid_par.copy()              # reservoir z grid parameters
+res_grid_par['nz'] = 100
+res_grid_par['dz'] =   2
+res_grid_par['oz'] = -45
+
+ovr_grid_par = grid_par.copy()              # overburden z grid parameters
+ovr_grid_par['nz'] =  50
+ovr_grid_par['dz'] =  40
+ovr_grid_par['oz'] = 130
+
+# ------------------------------------------------------------
+# Seismic modeling parameters
+
+
+par = {
+        'nt':1000, 'ot':0, 'dt':0.005, 'kt':20,             # time
+        'nw':501,  'ow':0,                                  # frequency
+        
+        'nx':res_grid_par['nx']+2*res_grid_par['xy_pad'],   # array sizes
+        'ny':res_grid_par['ny']+2*res_grid_par['xy_pad'], 
+        'nz':res_grid_par['nz'],      
+
+        'dx':res_grid_par['dx'],                            # cell sizes
+        'dy':res_grid_par['dy'],
+        'dz':res_grid_par['dz'],
+
+        'ox':0, 'oy':0, 'oz':0,                             # grid origin
+        
+        'verb':'y','eps':0.01,'nrmax':1,'dtmax':0.00005,    # migration
+        'tmx':16,'tmy':16,'pmx':0,'pmy':0,'misc':'incore=y'                
+      }
+
+par['dw']=1./(par['nt']*par['dt'])
+
+par['xmin']=par['ox']
+par['xmax']=par['ox'] + (par['nx']-1) * par['dx']
+par['ymin']=par['oy']
+par['ymax']=par['oy'] + (par['ny']-1) * par['dy']
+par['zmin']=par['oz']
+par['zmax']=par['oz'] + (par['nz']-1) * par['dz']
+
+# source coordinates
+par['xpad']=par['nx']/2.
+par['ypad']=par['ny']/2.
+
+par['xsou']=par['ox'] + par['xpad'] * par['dx']
+par['ysou']=par['oy'] + par['ypad'] * par['dy']
+
+par['ft']=par['kt']*par['dt']
+
+z_slice = res_grid_par['dz']*res_grid_par['nz']+res_grid_par['oz']-10
+
+# ------------------------------------------------------------
+
+# Main SConstruct
+
+
+frq_list = [40]                             # frequency list
 
 
 for frq in frq_list:
@@ -45,8 +117,6 @@ for frq in frq_list:
 # From Madagascar Paper
 from rsf.proj import *
 
-
-
 Flow('zdip','zodata_40hz','dip rect1=10 rect2=40 rect3=40')
 
 Flow('xdip','zdip','window n4=1')
@@ -62,26 +132,26 @@ Flow('zpwd','zodata_40hz zdip','pwd dip=${SOURCES[1]}')
 Flow('xpwd','zpwd','window n4=1')
 Flow('ypwd','zpwd','window f4=1')
 
-Result('xpwd',plot3('Isolated Diffractions (In-line)'))
-Result('ypwd',plot3('Isolated Diffractions (Cross-line)'))
+Result('xpwd','window min1=1.7 max1=2.2 |'+ plot3('Isolated Diffractions (In-line)'))
+Result('ypwd','window min1=1.7 max1=2.2 |'+plot3('Isolated Diffractions (Cross-line)'))
 
 Flow('shp','zodata_40hz xdip ydipt',
      '''
      pwsmooth dip=${SOURCES[1]} ns=1 |
-     transp memsize=500 plane=23 |
+     transp memsize=5000 plane=23 |
      pwsmooth dip=${SOURCES[2]} ns=1 |
-     transp memsize=500 plane=23 |
+     transp memsize=5000 plane=23 |
      add scale=-1,1 ${SOURCES[0]}
      ''')
 
-Result('shp',plot3('Isolated Diffractions'))
+Result('shp','window min1=1.7 max1=2.2 |' + plot3('Isolated Diffractions'))
 
 Flow('ckx','shp','cosft sign2=1 sign3=1')
 Flow('sto','ckx','pad beg1=680 | stolt nf=4 vel=1500 | window f1=680')
 Flow('vlf','sto','spray axis=2 n=1 o=0 d=1 | fourvc nv=50 dv=40 v0=1500')
 Flow('vlc','vlf',
      '''
-     transp plane=23 memsize=500 |
+     transp plane=23 memsize=5000 |
      cosft sign2=-1 |
      transp plane=34 |
      cosft sign3=-1
@@ -90,41 +160,59 @@ Flow('pat','vlc','patch w=201,440,280')
 
 #Flow('slo','zovel','math "output=1/input" | transp memsize=250 plane=12 | transp memsize=250 plane=23')
 
-Flow('dat','zodata_40hz','fft1 | transp memsize=512 plane=12 | transp memsize=512 plane=23')
+# Flow('dat','zodata_40hz','fft1 | transp memsize=512 plane=12 | transp memsize=512 plane=23')
 
+Result('mig-ovs','mig-ovs',
+       'transp memsize=250 plane=12 |'
+       + zplot3d(par,'pclip=100 bias=0.00039 allpos=y',
+                     'title="overburden slowness" frame3=%(nz)d color=j' 
+                     % ovr_grid_par))
 
-Flow('mig','dat mig_res_slo_smooth mig_over_slo_smooth',
+Result('mig-ovs','mig-ovs',
+       'transp memsize=250 plane=12 |'
+       + zplot3d(par,'pclip=100 bias=0.00039 allpos=y',
+                     'title="overburden slowness" frame3=%(nz)d color=j' 
+                     % ovr_grid_par))
+Result('mig-slo-s','mig-slo-s',
+       'transp memsize=250 plane=12 |'
+       + zplot3d(par,'pclip=100 bias=0.00034 allpos=y',
+                     'title="smoothed slowness" color=j'))
+
+Result('mig-slo','mig-slo',
+       'transp memsize=250 plane=12 |'
+       + zplot3d(par,'pclip=100 bias=0.00034 allpos=y',
+                     'title="slowness" color=j'))
+
+Flow('pwdat','xpwd','fft1 | transp memsize=5120 plane=12 | transp memsize=5120 plane=23')
+Flow('pwmig','pwdat mig-slo-s mig-ovs-s',
      '''
-     zomig mode=d inv=y causal=y twoway=y --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[2]} |
-     zomig mode=m inv=n --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[1]}
-     ''')
-
-Result('zomig','mig',
-       '''
-       transp memsize=512 plane=12 |
-       byte gainpanel=all |
-       grey3 wanttitle=n labelrot=n flat=y 
-       frame1=140 frame2=220 frame3=140
-       point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
-       label1=y unit1=m label2=x unit2=m label3=z unit3=m 
-       ''')
-
-
-Flow('pwdat','xpwd','fft1 | transp memsize=512 plane=12 | transp memsize=512 plane=23')
-Flow('pwmig','pwdat slo over',
-     '''
-     zomig mode=d inv=y causal=y twoway=y --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[2]} |
-     zomig mode=m inv=n --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[1]}
+     zomig3 mode=d inv=y causal=y twoway=y --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[2]} |
+     zomig3 mode=m inv=n --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[1]}
      ''')
 Result('pwmig',
-       '''
-       transp memsize=512 plane=12 |
-       byte gainpanel=all |
-       grey3 wanttitle=n labelrot=n flat=y 
-       frame1=140 frame2=220 frame3=140
-       point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
-       label1=y unit1=m label2=x unit2=m label3=z unit3=m 
-       ''')
+          '''
+          transp memsize=512 plane=12 |
+          byte gainpanel=all|
+          grey3 wanttitle=n labelrot=n flat=y 
+          frame1=140 frame2=220 frame3=70 
+          point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
+          label1=y unit1=m label2=x unit2=m label3=z unit3=m 
+          ''')
 
+Flow('pwmig-true','pwdat mig-slo mig-ovs',
+     '''
+     zomig3 mode=d inv=y causal=y twoway=y --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[2]} |
+     zomig3 mode=m inv=n --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[1]}
+     ''')
+
+Result('pwmig-true',
+          '''
+          transp memsize=512 plane=12 |
+          byte gainpanel=all|
+          grey3 wanttitle=n labelrot=n flat=y 
+          frame1=140 frame2=220 frame3=70 
+          point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
+          label1=y unit1=m label2=x unit2=m label3=z unit3=m 
+          ''')
 
 End()
