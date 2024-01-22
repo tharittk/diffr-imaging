@@ -1,0 +1,230 @@
+from rsf.proj import *
+
+
+# Read I/O
+
+Flow(['S1_GAP.rsf','S1_GAP_hdr.rsf',
+      'S1_GAP.thdr','S1_GAP.bhdr'],
+     'S1_GAP_TestCube.sgy',
+     '''
+     sfsegyread
+
+        tfile=${TARGETS[1]} 
+        hfile=${TARGETS[2]}  
+	bfile=${TARGETS[3]} 
+     ''')
+
+# create 3d mapped volume using trace headers
+Flow(['dat.rsf','dat_hdr.rsf'],['S1_GAP.rsf','S1_GAP_hdr.rsf'],
+     '''
+     sftahsort \
+          input=${SOURCES[0]} \
+	  sort="iline xline" \
+	  verbose=1 \
+     | sftahwrite \
+          output=${TARGETS[0]} \
+          label2="iline"    o2=2044  n2=342 d2=1 \
+          label3="xline" o3=1575 n3=775 d3=1
+	  verbose=1
+     ''',stdout=0, stdin=0)
+
+
+# ----------------- 2D Diffraction Imaging part---------------------
+iline_test = 2143
+
+# Separation 
+Flow('dat_2d', 'dat', 'window f1=250 n2=1 f2=%d' % (iline_test - 2044))
+Result("dat_2d","sfgrey title='S1_GAP IL: %d'" % (iline_test))
+
+rect1 = 10
+rect2 = 10
+
+Flow('dip','dat_2d','dip rect1=%d rect2=%d' % (rect1,rect2))
+Result('dip','grey title="dominant slop" color=j scalebar=y barlabel=Slope barunit=samples ')
+
+srect1 = 1 # specular part?
+srect2= 5
+Flow('pwk','dip',
+         'pwdsmooth2 dip=$SOURCE rect1=3 rect2=%d' %  srect2)
+
+Result('pwk','grey title="Pattern" ')
+    
+
+Flow('pwd',['dat_2d','dip'],'pwd dip=${SOURCES[1]}')
+Result('pwd','grey title="Separaterd Diffraction" ')
+
+Flow('refl',['dat_2d','dip'],
+         'pwdsmooth2 dip=${SOURCES[1]} rect1=%d rect2=%d' %  (srect1,srect2))
+
+Result('refl','grey title="Separaterd Reflection" ')
+
+Flow('shp',['dat_2d','refl'],'add ${SOURCES[1]} scale=1,-1')
+Result('shp','grey title="Diffraction via subtraction refl" ')
+
+# -------------------- Not working Velcon
+# # Estimate velocity
+# padx=1000
+# beg1=0
+# v0=1.7
+# dv=0.025
+# nv=80
+# nx=775 # number of xline
+# x0=1575
+# frect1=10
+# frect2=10
+# vx0=1.75
+# an = 1
+# velcon = '''
+#     pad n2=%d beg1=%d | cosft sign2=1 | put o3=0 | 
+#     stolt vel=%g | 
+#     vczo nv=%d dv=%g v0=%g |
+#     transp plane=23 |
+#     cosft sign2=-1 
+#     ''' % (padx,beg1,v0,nv,dv,v0)
+
+# Flow('vlf','pwd',velcon)
+# Result('vlf','grey')
+
+
+# Flow('vlfq','pwd',
+#          '''
+#          math output="input*input" | %s | clip2 lower=0
+#          ''' % velcon)
+
+# tmin=0
+# tmax=4
+# focus = '''    
+#     focus rect1=%d rect3=%d |
+#     math output="1/abs(input)" |
+#     cut max1=%g | cut min1=%g 
+#     ''' % (frect1,frect2,tmin,tmax)
+ 
+# Flow('foc','vlf',focus)
+
+# Flow('sem',['vlf','vlfq'],
+#          '''
+#          mul $SOURCE |
+#          divn den=${SOURCES[1]} rect1=%d rect3=%d niter=10
+#          ''' % (rect1,rect2))
+
+# #vslope=0.67
+# #if vslope:
+# #     pick = 'mutter x0=%g v0=%g half=n | ' % (vx0,vslope)
+# #else:
+# #     pick = ''
+# pick=''
+
+# pick = pick + 'pick an=%g rect1=%d rect2=%d | window' % (an,rect1,rect2)
+
+
+        
+# Flow('pik','sem',pick)
+# Result('pik',
+#      '''
+#         grey title="Migration velocity"
+#         color=j scalebar=y mean=y barlabel=Velocity barunit="km/s"
+#         barreverse=y
+#         '''
+#      )
+
+# # diffraciton
+# Flow('slc',['vlf','pik'],'slice pick=${SOURCES[1]}')
+# Result('slc','grey title="Migrated Diffractions"')
+
+# # full stack
+# Flow('vlf_stk','dat_2d',velcon)
+# Flow('slc_stk',['vlf_stk','pik'],'slice pick=${SOURCES[1]}')
+# Result('slc_stk','grey title="Migrated stack"')
+
+# # Reflection
+# Flow('vlf_refl', 'refl',velcon)
+# Flow('slc_refl',['vlf_refl','pik'],'slice pick=${SOURCES[1]}')
+# Result('slc_refl','grey title="Migrated Reflection"')
+
+
+###############----------------------
+
+# Flow('zdip','zodata_40hz','dip rect1=10 rect2=40 rect3=40')
+
+# Flow('xdip','zdip','window n4=1')
+# Flow('ydip','zdip','window f4=1')
+
+# Flow('ydipt','ydip','transp memsize=500 plane=23')
+
+# Result('xdip',plot3('In-line Slope') + ' color=j')
+# Result('ydip',plot3('Cross-line Slope') + ' color=j')
+
+# Flow('zpwd','zodata_40hz zdip','pwd dip=${SOURCES[1]}')
+
+# Flow('xpwd','zpwd','window n4=1')
+# Flow('ypwd','zpwd','window f4=1')
+
+# Result('xpwd','window min1=1.7 max1=2.2 |'+ plot3('Isolated Diffractions (In-line)'))
+# Result('ypwd','window min1=1.7 max1=2.2 |'+plot3('Isolated Diffractions (Cross-line)'))
+
+# Flow('shp','zodata_40hz xdip ydipt',
+#      '''
+#      pwsmooth dip=${SOURCES[1]} ns=1 |
+#      transp memsize=5000 plane=23 |
+#      pwsmooth dip=${SOURCES[2]} ns=1 |
+#      transp memsize=5000 plane=23 |
+#      add scale=-1,1 ${SOURCES[0]}
+#      ''')
+
+# Result('shp','window min1=1.7 max1=2.2 |' + plot3('Isolated Diffractions'))
+
+# Flow('ckx','shp','cosft sign2=1 sign3=1')
+# Flow('sto','ckx','pad beg1=680 | stolt nf=4 vel=1500 | window f1=680')
+# Flow('vlf','sto','spray axis=2 n=1 o=0 d=1 | fourvc nv=50 dv=40 v0=1500')
+# Flow('vlc','vlf',
+#      '''
+#      transp plane=23 memsize=5000 |
+#      cosft sign2=-1 |
+#      transp plane=34 |
+#      cosft sign3=-1
+#      ''')
+# Flow('pat','vlc','patch w=201,440,280')
+
+# Flow('slo','zovel','math "output=1/input" | transp memsize=250 plane=12 | transp memsize=250 plane=23')
+
+# Flow('dat','zodata_40hz','fft1 | transp memsize=512 plane=12 | transp memsize=512 plane=23')
+
+# Result('mig-ovs','mig-ovs',
+#        'transp memsize=250 plane=12 |'
+#        + zplot3d(par,'pclip=100 bias=0.00039 allpos=y',
+#                      'title="overburden slowness" frame3=%(nz)d color=j' 
+#                      % ovr_grid_par))
+
+# Result('mig-ovs','mig-ovs',
+#        'transp memsize=250 plane=12 |'
+#        + zplot3d(par,'pclip=100 bias=0.00039 allpos=y',
+#                      'title="overburden slowness" frame3=%(nz)d color=j' 
+#                      % ovr_grid_par))
+# Result('mig-slo-s','mig-slo-s',
+#        'transp memsize=250 plane=12 |'
+#        + zplot3d(par,'pclip=100 bias=0.00034 allpos=y',
+#                      'title="smoothed slowness" color=j'))
+
+# Result('mig-slo','mig-slo',
+#        'transp memsize=250 plane=12 |'
+#        + zplot3d(par,'pclip=100 bias=0.00034 allpos=y',
+#                      'title="slowness" color=j'))
+
+# Flow('pwdat','xpwd','fft1 | transp memsize=5120 plane=12 | transp memsize=5120 plane=23')
+# Flow('pwmig','pwdat mig-slo-s mig-ovs-s',
+#      '''
+#      zomig3 mode=d inv=y causal=y twoway=y --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[2]} |
+#      zomig3 mode=m inv=n --readwrite=y verb=y nrmax=1 dtmax=5e-05 eps=0.01 tmx=16 tmy=16 pmx=0 pmy=0 incore=y slo=${SOURCES[1]}
+#      ''')
+# Result('pwmig',
+#           '''
+#           transp memsize=512 plane=12 |
+#           byte gainpanel=all|
+#           grey3 wanttitle=n labelrot=n flat=y 
+#           frame1=140 frame2=220 frame3=70 
+#           point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
+#           label1=y unit1=m label2=x unit2=m label3=z unit3=m 
+#           ''')
+
+
+End()
