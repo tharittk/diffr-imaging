@@ -34,10 +34,11 @@ iline_test = 2143
 
 # Separation 
 Flow('dat_2d', 'dat', 'window n2=1 f2=%d' % (iline_test - 2044))
-Result("dat_2d","sfgrey title='S1_GAP IL: %d'" % (iline_test))
+Result("dat_2d","window n1=1500 | sfgrey title='S1_GAP IL: %d'" % (iline_test))
 
-rect1 = 10
-rect2 = 5
+rect1 = 60
+rect2 = 320
+
 
 Flow('dip','dat_2d','dip rect1=%d rect2=%d' % (rect1,rect2))
 Result('dip','grey title="dominant slop" color=j scalebar=y barlabel=Slope barunit=samples ')
@@ -51,7 +52,7 @@ Result('pwk','grey title="Pattern"')
     
 
 Flow('pwd',['dat_2d','dip'],'pwd dip=${SOURCES[1]}')
-Result('pwd','grey title="Separaterd Diffraction" ')
+Result('pwd','window n1=1500 | grey title="Separaterd Diffraction" ')
 
 Flow('refl',['dat_2d','dip'],
          'pwdsmooth2 dip=${SOURCES[1]} rect1=%d rect2=%d' %  (srect1,srect2))
@@ -61,12 +62,28 @@ Result('refl','grey title="Separaterd Reflection" ')
 Flow('shp',['dat_2d','refl'],'add ${SOURCES[1]} scale=1,-1')
 Result('shp','grey title="Diffraction via subtraction refl" ')
 
-#------------------ 3D Diffraction Separation -------------------
+# Parameter search
+rect1_list = [10, 20, 40, 80, 160, 320]
+rect2_list = [10, 20, 40, 80, 160, 320, 640]
+
+for rect1 in rect1_list:
+     for rect2 in rect2_list:
+          dip = 'dip' +'r1-' + str(rect1) + 'r2-' + str(rect2)
+          pwd = 'pwd' +'r1-' + str(rect1) + 'r2-' + str(rect2)
+
+          Flow(dip ,'dat_2d','dip rect1=%d rect2=%d' % (rect1,rect2))
+          #Result('dip','grey title="dominant slop" color=j scalebar=y barlabel=Slope barunit=samples ')
+          Flow(pwd ,['dat_2d', dip],'pwd dip=${SOURCES[1]}')
+
+          Result(pwd ,'window n1=1500 | grey title="Separaterd Diffraction (%d, %d)" ' %(rect1, rect2))
+# best 160 , 320
+
+# #------------------ 3D Diffraction Separation -------------------
 # frame 2 is xline num, frame3= inline
 Result('dat',
           '''
-           transp plane=23 |
-          byte gainpanel=all |
+           transp plane=23 memsize=5000 |
+          byte gainpanel=all | window n1=1000 |
           grey3 wanttitle=n labelrot=n flat=n
           frame1=750 frame2=600 frame3=99
           point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
@@ -83,30 +100,46 @@ Result('zdip',
           point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
           title="INLINE slope" color=j
      ''')
-# Flow('xdip','zdip','window n4=1')
-# Flow('ydip','zdip','window f4=1')
+Flow('xdip','zdip','window n4=1')
+Flow('ydip','zdip','window f4=1')
 
-# Flow('ydipt','ydip','transp memsize=5000 plane=23')
+Flow('ydipt','ydip','transp memsize=5000 plane=23')
 
 # Result('xdip','grey title="INLINE slope" color=j scalebar=y barlabel=Slope barunit=samples ')
 # Result('ydip','grey title="XLINE slope" color=j scalebar=y barlabel=Slope barunit=samples ')
 
-# Flow('zpwd','dat zdip','pwd dip=${SOURCES[1]}')
+Flow('zpwd','dat zdip','pwd dip=${SOURCES[1]}')
 
-# Flow('xpwd','zpwd','window n4=1')
+Flow('xpwd','zpwd','window n4=1')
 # Flow('ypwd','zpwd','window f4=1')
 
-# Flow('shp_3d','dat xdip ydipt',
+
+Result('xpwd',
+          '''
+           transp plane=23 memsize=5000 |
+          byte gainpanel=all | window n1=1000 |
+          grey3 wanttitle=n labelrot=n flat=n
+          frame1=750 frame2=600 frame3=99
+          point1=0.85 point2=0.90 Xscreenratio=0.7 Xscreenht=9
+          label1=time label2=XLINE label3=INLINE title="Separated Diffraction"
+          ''')
+
+# create 3d mapped volume using trace headers
+Flow('S1_GAP_Diffraction_Opt.segy','xpwd dat_hdr',
+     '''
+     segywrite  
+     tfile=${SOURCES[1]} 
+     hfile=${SOURCES[2]}  
+	bfile=${SOURCES[3]} 
+     ''')
+
+# Flow('S1_GAP_ZO.segy','dat dat_hdr',
 #      '''
-#      pwsmooth dip=${SOURCES[1]} ns=1 |
-#      transp memsize=5000 plane=23 |
-#      pwsmooth dip=${SOURCES[2]} ns=1 |
-#      transp memsize=5000 plane=23 |
-#      add scale=-1,1 ${SOURCES[0]}
+#      segywrite  
+#      tfile=${SOURCES[1]} 
+#      hfile=${SOURCES[2]}  
+# 	bfile=${SOURCES[3]} 
 #      ''')
-
-
-# Result('xpwd','grey title="Separaterd Diffraction (IL)" ')
 # Result('ypwd','grey title="Separaterd Diffraction (XL)" ')
 # Result('pwmig-true',
 #           '''
